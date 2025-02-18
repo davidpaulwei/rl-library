@@ -8,8 +8,8 @@ from torch import nn
 
 # params for Q-value dueling net
 num_inputs = 4      # four input values represent cart's position & velocity, pole's angle & angular velocity, respectively.
-num_hidden_a = 20
-num_hidden_b = 20
+num_hidden_a = 256
+num_hidden_b = 256
 num_outputs = 2     # two output values represent q-values for the two available actions - give the cart a left & right force, respectively.
 
 # training process setup
@@ -62,15 +62,15 @@ high_score_threshold = 100 # save agent with average game score above high_score
 high_loss_threshold = 1 # raise the training program when facing average DQN loss higher than high_loss_threshold.
 
 # code mode
-train_new_net = False # to train a new agent, set train_new_net panel to True. to read trained agent from file and continue training, set train_new_net to False.
-show_animation = True # to see animation for trained agent stored in file, set show_animation panel to True. to train agent old or new, set show_animation to False.
+train_new_net = True # to train a new agent, set train_new_net panel to True. to read trained agent from file and continue training, set train_new_net to False.
+show_animation = False # to see animation for trained agent stored in file, set show_animation panel to True. to train agent old or new, set show_animation to False.
 
 
 class dueling_net:
 
     """a 5-layer dueling net class disigned by wei jianglan for openai gym's cartpole-v1 mission."""
 
-    def __init__(self, num_inputs: int, num_hidden_a: int, num_hidden_b: int, num_outputs: int, lr: float, requires_grad: bool = True) -> None:
+    def __init__(self, num_inputs: int, num_hidden_a: int, num_hidden_b: int, num_outputs: int, lr: float, requires_grad: bool = True, cuda: bool = False) -> None:
         """initializing a 5-layer dueling net consisted with:
             - input layer, with num_inputs as its size;
             - hidden layer a, with 'ReLU' activation function, and num_hidden_a as its size;
@@ -82,6 +82,9 @@ class dueling_net:
                    nn.Linear(in_features=num_hidden_a, out_features=num_hidden_b),              # hidden layer a <out> -> hidden layer b <in>
                    nn.ReLU(),                                                                   # hidden layer b <in> -> hidden layer b <out>
                    nn.Linear(in_features=num_hidden_b, out_features=num_outputs+1))             # hidden layer b <out> -> hidden layer c
+        self.cuda_ = cuda
+        if self.cuda_ is True:
+            self.net.cuda()
         if requires_grad is False:
             for params in self.net.parameters():
                 params.requires_grad = False
@@ -93,7 +96,8 @@ class dueling_net:
 
     def forward(self, inputs: Tensor) -> Tensor:
         """the forward method for dueling net"""
-        hidden_layer_c = self.net(inputs)                                              # value of hidden layer c
+        if self.cuda_: inputs.cuda()
+        hidden_layer_c = self.net(inputs.cuda())                                       # value of hidden layer c
         outputs = hidden_layer_c[0] + hidden_layer_c[1:3] - hidden_layer_c[1:3].mean() # value of output layer, hidden_layer_c[0] is the mean of outputs.
         return outputs
     
@@ -114,6 +118,16 @@ class dueling_net:
     def renew_lr(self, lr: float) -> None:
         """renew learning rate for dueling net"""
         self.optimizer = torch.optim.SGD(params=self.net.parameters(), lr=lr)
+        
+    def cuda(self):
+        """move net to cuda"""
+        self.net.cuda()
+        return self
+
+    def cpu(self):
+        """move net to cpu"""
+        self.net.cpu()
+        return self
             
 class animator:
 
@@ -160,14 +174,14 @@ else: # code is set to train agent if else.
     train_agent = True
 
 if train_new_net: # if code is set to train a new agent, new dueling net will be created and new epoch - average_game_score graph will be drawn.
-    q_value_net = dueling_net(num_inputs, num_hidden_a, num_hidden_b, num_outputs, lr)
-    q_target_net = dueling_net(num_inputs, num_hidden_a, num_hidden_b, num_outputs, lr, requires_grad=False)
+    q_value_net = dueling_net(num_inputs, num_hidden_a, num_hidden_b, num_outputs, lr).cuda()
+    q_target_net = dueling_net(num_inputs, num_hidden_a, num_hidden_b, num_outputs, lr, requires_grad=False).cuda()
     avg_score_grf = animator(xlabel="epoch", ylabel="average score per game")
     epoch = 0
 else: # if code is set to further train agent stored in file, agent will be read and previous epoch - average_game_score graph will be restored.
-    q_value_net = torch.load('q_value_net.pt')
-    q_target_net = torch.load('q_target_net.pt')
-    avg_score_grf = torch.load('avg_score_grf.pt')
+    q_value_net = torch.load('q_value_net.pt', weights_only=False)
+    q_target_net = torch.load('q_target_net.pt', weights_only=False)
+    avg_score_grf = torch.load('avg_score_grf.pt', weights_only=False)
     q_value_net.renew_lr(lr)
     epoch = len(avg_score_grf.X)
 
@@ -177,6 +191,7 @@ else: # if code is set to further train agent stored in file, agent will be read
 if train_agent:
     env = gym.make('CartPole-v1') # obtain gym environment 'CartPole-v1'. 'CartPole-v1' has a max score of 500 per game.
     while epoch < num_epoches:
+        print("collecting games...")
         with torch.no_grad():
             if epoch % renew_target_net_per_period == 0: # renew target net
                 q_target_net.copy(q_value_net)
@@ -200,9 +215,10 @@ if train_agent:
                 game_count += 1 # renew game_count.
             avg_score = action_count / game_count # obtain average score per game.
             avg_score_grf.add(epoch, avg_score) # renew epoch - average_score graph.
-            print(f"epoch {epoch} avg score: {avg_score}") # print average score in terminal.
+            print(f"- epoch {epoch} avg score: {avg_score}\n") # print average score in terminal.
             if avg_score > high_score_threshold: # store high-score agent into file.
                 torch.save(q_value_net, f'q_value_net_score_{avg_score}.pt')
+        print("training q-net...")
         for step in range(num_steps):
             loss = 0 # double DQN loss.
             for game_buffer in epoch_buffer: # traverse game buffers in epoch
