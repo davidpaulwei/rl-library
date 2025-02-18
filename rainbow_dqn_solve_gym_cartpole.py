@@ -62,8 +62,8 @@ high_score_threshold = 100 # save agent with average game score above high_score
 high_loss_threshold = 1 # raise the training program when facing average DQN loss higher than high_loss_threshold.
 
 # code mode
-train_new_net = True # to train a new agent, set train_new_net panel to True. to read trained agent from file and continue training, set train_new_net to False.
-show_animation = False # to see animation for trained agent stored in file, set show_animation panel to True. to train agent old or new, set show_animation to False.
+train_new_net = False # to train a new agent, set train_new_net panel to True. to read trained agent from file and continue training, set train_new_net to False.
+show_animation = True # to see animation for trained agent stored in file, set show_animation panel to True. to train agent old or new, set show_animation to False.
 
 
 class dueling_net:
@@ -122,11 +122,13 @@ class dueling_net:
     def cuda(self):
         """move net to cuda"""
         self.net.cuda()
+        self.cuda_ = True
         return self
 
     def cpu(self):
         """move net to cpu"""
         self.net.cpu()
+        self.cuda_ = False
         return self
             
 class animator:
@@ -174,13 +176,13 @@ else: # code is set to train agent if else.
     train_agent = True
 
 if train_new_net: # if code is set to train a new agent, new dueling net will be created and new epoch - average_game_score graph will be drawn.
-    q_value_net = dueling_net(num_inputs, num_hidden_a, num_hidden_b, num_outputs, lr).cuda()
-    q_target_net = dueling_net(num_inputs, num_hidden_a, num_hidden_b, num_outputs, lr, requires_grad=False).cuda()
+    q_value_net = dueling_net(num_inputs, num_hidden_a, num_hidden_b, num_outputs, lr, cuda=True)
+    q_target_net = dueling_net(num_inputs, num_hidden_a, num_hidden_b, num_outputs, lr, requires_grad=False, cuda=True)
     avg_score_grf = animator(xlabel="epoch", ylabel="average score per game")
     epoch = 0
 else: # if code is set to further train agent stored in file, agent will be read and previous epoch - average_game_score graph will be restored.
-    q_value_net = torch.load('q_value_net.pt', weights_only=False)
-    q_target_net = torch.load('q_target_net.pt', weights_only=False)
+    q_value_net = torch.load('q_value_net.pt', weights_only=False).cuda()
+    q_target_net = torch.load('q_target_net.pt', weights_only=False).cuda()
     avg_score_grf = torch.load('avg_score_grf.pt', weights_only=False)
     q_value_net.renew_lr(lr)
     epoch = len(avg_score_grf.X)
